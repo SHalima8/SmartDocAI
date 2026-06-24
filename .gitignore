@@ -1,0 +1,10 @@
+venv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+results/*.json
+assets/screenshots/
+*.egg-info/
+.streamlit/
+data/uploads/
