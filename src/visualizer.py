@@ -555,4 +555,3 @@ def build_visual_report(result) -> dict:
 
     }
 
-build_visual_report()
