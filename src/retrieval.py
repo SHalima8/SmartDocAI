@@ -142,34 +142,34 @@ class RetrievalComparison:
 
     def best_overall(self) -> Optional[RetrievalResult]:
         """
-        Return the single best result across all three methods.
+        Select the single best result across all three methods.
 
-        Strategy: prefer the Sentence Transformer result if its score is
-        above the low-confidence threshold. If the embedding score is very
-        low but TF-IDF found something strong, use TF-IDF.
+    Priority order: Embedding → TF-IDF → BoW
+    
+    Why this order?
+        Embedding wins because it understands meaning, not keywords.
+        TF-IDF wins over BoW because it down-weights common words —
+        BoW's high scores on irrelevant queries ("capital of France" = 0.64)
+        are false confidence caused by stop words like "what", "is", "the"
+        inflating raw counts. TF-IDF correctly scores those near 0.18.
+        BoW is only used if both other methods failed entirely.
 
-        Why prefer embeddings?
-            Embeddings understand synonyms and paraphrasing.
-            "What does self-attention compute?" matches "the mechanism
-            calculates weighted sums" even though no keywords overlap.
-            BoW and TF-IDF would score that near zero.
-
-        Why not always use embeddings?
-            For very short queries with exact technical terms
-            ("BLEU score", "Multi-Head Attention formula"),
-            TF-IDF often scores higher because those exact tokens appear
-            in the relevant chunk and the embedding model may generalise
-            too broadly.
+    Low confidence check:
+        If the best result is below LOW_SIMILARITY_THRESHOLD, it means
+        no method found a genuinely relevant chunk. The LLM will be told
         """
-        candidates = []
+        
+        for results in (self.embedding, self.tfidf, self.bow):
+            if results and results[0].similarity_score >= LOW_SIMILARITY_THRESHOLD:
+                return results[0]
+
         for results in (self.embedding, self.tfidf, self.bow):
             if results:
-                candidates.append(results[0])  # rank=1 from each method
+             return results[0]
+            
+        return None
 
-        if not candidates:
-            return None
 
-        return max(candidates, key=lambda r: r.similarity_score)
 
     def all_results(self) -> list[RetrievalResult]:
         """Flat list of all results across all methods — useful for Streamlit."""
