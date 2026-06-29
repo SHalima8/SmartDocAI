@@ -1,506 +1,170 @@
-"""
-app.py
-======
-
-SmartDocAI Streamlit Application
-
-This is the only file responsible for the user interface.
-
-Architecture
-------------
-
-User
-    ↓
-Streamlit UI
-    ↓
-SmartDocPipeline
-    ↓
-Visualizer
-    ↓
-Display Results
-
-The application itself contains almost no NLP logic.
-
-All heavy processing is delegated to:
-
-    pipeline.py
-    visualizer.py
-"""
-
 from __future__ import annotations
 
-import os
 import tempfile
-
-import pandas as pd
 import streamlit as st
 
 from pipeline import SmartDocPipeline
 
-from visualizer import (
-    format_answer,
-    build_confidence_badge,
-    build_source_summary,
-    build_chunk_cards,
-    build_similarity_table,
-    build_similarity_chart,
-    build_retrieval_summary,
-    build_pipeline_timeline,
-    build_pipeline_flow,
-    build_prompt_preview,
-    build_llm_summary,
-    build_how_it_works,
-)
-
-# ==========================================================
-# Streamlit Configuration
-# ==========================================================
+# --------------------------------------------------
+# Page Config
+# --------------------------------------------------
 
 st.set_page_config(
-
     page_title="SmartDocAI",
-
     page_icon="📄",
-
     layout="wide",
-
 )
 
 st.title("📄 SmartDocAI")
+st.write("Explainable RAG using Gemini")
 
-st.caption(
-    "Explainable Retrieval-Augmented Question Answering using Gemini"
-)
-
-st.divider()
-# ==========================================================
+# --------------------------------------------------
 # Session State
-# ==========================================================
+# --------------------------------------------------
 
 if "pipeline" not in st.session_state:
-
     st.session_state.pipeline = SmartDocPipeline()
 
 if "indexed" not in st.session_state:
-
     st.session_state.indexed = False
 
-if "document_stats" not in st.session_state:
-
-    st.session_state.document_stats = None
-
 if "result" not in st.session_state:
-
     st.session_state.result = None
-# ==========================================================
+
+# --------------------------------------------------
 # Sidebar
-# ==========================================================
+# --------------------------------------------------
 
 with st.sidebar:
 
-    st.header("📂 Document")
+    st.header("Upload PDF")
 
     uploaded_pdf = st.file_uploader(
-
-        "Upload a PDF",
-
+        "Choose a PDF",
         type=["pdf"],
-
     )
 
     if uploaded_pdf:
 
-        if st.button("Build Document Index"):
+        if st.button("Build Index"):
 
-            with st.spinner("Indexing document..."):
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".pdf",
+            ) as temp:
 
-                with tempfile.NamedTemporaryFile(
+                temp.write(uploaded_pdf.read())
+                pdf_path = temp.name
 
-                    delete=False,
+            with st.spinner("Building document index..."):
 
-                    suffix=".pdf",
+                stats = st.session_state.pipeline.index_document(pdf_path)
 
-                ) as temp_pdf:
+            st.session_state.indexed = True
 
-                    temp_pdf.write(uploaded_pdf.read())
+            st.success("Document indexed!")
 
-                    temp_path = temp_pdf.name
+            st.write("### Statistics")
 
-                stats = st.session_state.pipeline.index_document(
+            st.write(f"Pages : {stats['pages']}")
+            st.write(f"Chunks : {stats['chunks']}")
+            st.write(f"Words : {stats['total_words']}")
+            st.write(f"Index Time : {stats['index_time_seconds']} sec")
 
-                    temp_path
+# --------------------------------------------------
+# Question
+# --------------------------------------------------
 
-                )
-
-                st.session_state.indexed = True
-
-                st.session_state.document_stats = stats
-
-            st.success("Document indexed successfully!")
-
-    st.divider()
-
-    if st.session_state.document_stats:
-
-        stats = st.session_state.document_stats
-
-        st.subheader("Statistics")
-
-        st.write(f"**Pages:** {stats['pages']}")
-
-        st.write(f"**Chunks:** {stats['chunks']}")
-
-        st.write(f"**Words:** {stats['total_words']}")
-
-        st.write(f"**Index Time:** {stats['index_time_seconds']} sec")
-
-    # ==========================================================
-# Ask Questions
-# ==========================================================
-
-st.header("💬 Ask Questions")
-
-if not st.session_state.indexed:
-
-    st.info("Upload a PDF and build the document index first.")
-
-else:
+if st.session_state.indexed:
 
     question = st.text_input(
-
-        "Ask something about the uploaded document",
-
-        placeholder="Example: What is positional encoding?",
-
+        "Ask a question"
     )
 
-    ask_button = st.button(
+    if st.button("Generate Answer"):
 
-        "Generate Answer",
-
-        use_container_width=True,
-
-    )
-
-    if ask_button:
-
-        if not question.strip():
-
-            st.warning("Please enter a question.")
+        if question.strip() == "":
+            st.warning("Enter a question.")
 
         else:
 
-            with st.spinner("Thinking..."):
+            with st.spinner("Gemini is thinking..."):
 
-                result = st.session_state.pipeline.ask(
+                result = st.session_state.pipeline.ask(question)
 
-                    question=question,
+            st.session_state.result = result
 
-                    top_k=3,
+else:
 
-                )
+    st.info("Upload a PDF first.")
 
-                st.session_state.result = result
-
-    # ==========================================================
-# Answer
-# ==========================================================
+# --------------------------------------------------
+# Result
+# --------------------------------------------------
 
 if st.session_state.result:
 
     result = st.session_state.result
 
-    answer = format_answer(result)
-
-    badge = build_confidence_badge(result)
-
     st.divider()
 
-    st.header("🤖 Answer")
+    st.header("Answer")
 
-    st.write(answer["answer"])
+    st.write(result.answer)
 
     col1, col2, col3 = st.columns(3)
 
-    with col1:
-
-        st.metric(
-
-            "Confidence",
-
-            badge["label"],
-
-        )
-
-    with col2:
-
-        st.metric(
-
-            "Source Chunk",
-
-            answer["source_chunk"],
-
-        )
-
-    with col3:
-
-        st.metric(
-
-            "Pipeline Time",
-
-            f"{answer['total_time']} sec",
-
-        )
-
-    if answer["reasoning"]:
-
-        st.subheader("Reasoning")
-
-        st.write(answer["reasoning"])
-
-    # ==========================================================
-# Retrieval Summary
-# ==========================================================
-
-summary = build_retrieval_summary(result)
-
-st.divider()
-
-st.header("🔍 How SmartDocAI Found the Answer")
-
-st.write(summary["explanation"])
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric(
-        "Method",
-        summary["method"],
+    col1.metric(
+        "Confidence",
+        result.confidence,
     )
 
-with col2:
-    st.metric(
-        "Selected Chunk",
-        summary["selected_chunk"],
+    col2.metric(
+        "Source Chunk",
+        result.source_chunk,
     )
 
-with col3:
-    st.metric(
-        "Similarity",
-        summary["similarity"],
+    col3.metric(
+        "Time",
+        f"{result.total_time:.2f} sec",
     )
 
-st.caption(
-    f"Pages: {summary['pages']}"
-)
+    st.divider()
 
-# ==========================================================
-# Retrieved Chunks
-# ==========================================================
+    st.subheader("Reasoning")
 
-cards = build_chunk_cards(result)
+    st.write(result.reasoning)
 
-st.divider()
+    # --------------------------------------------------
+    # Retrieved Chunks
+    # --------------------------------------------------
 
-st.header("📄 Retrieved Chunks")
+    st.divider()
 
-for card in cards:
+    st.header("Retrieved Chunks")
 
-    with st.expander(
+    comparison = result.retrieval_comparison
 
-        f"Rank {card['rank']} — {card['chunk_id']}"
+    methods = [
+        ("Embedding", comparison.embedding),
+        ("TF-IDF", comparison.tfidf),
+        ("BoW", comparison.bow),
+    ]
 
-    ):
+    for method_name, results in methods:
 
-        st.write(card["preview"])
+        st.subheader(method_name)
 
-        c1, c2, c3 = st.columns(3)
+        if not results:
+            st.write("No results.")
+            continue
 
-        c1.metric(
+        for r in results:
 
-            "Similarity",
+            with st.expander(
+                f"{r.chunk.chunk_id} | Score = {r.similarity_score:.4f}"
+            ):
 
-            card["similarity"],
+                st.write(f"Pages : {r.page_range()}")
 
-        )
-
-        c2.metric(
-
-            "Pages",
-
-            card["pages"],
-
-        )
-
-        c3.metric(
-
-            "Words",
-
-            card["word_count"],
-
-        )
-
-# ==========================================================
-# Similarity Table
-# ==========================================================
-
-table = build_similarity_table(result)
-
-st.divider()
-
-st.header("📋 Retrieval Comparison")
-
-st.dataframe(
-
-    table,
-
-    use_container_width=True,
-
-)
-
-# ==========================================================
-# Similarity Chart
-# ==========================================================
-
-chart = build_similarity_chart(result)
-
-st.divider()
-
-st.header("📊 Similarity Scores")
-
-chart_df = pd.DataFrame({
-
-    "Chunk": chart["labels"],
-
-    "Similarity": chart["scores"],
-
-})
-
-st.bar_chart(
-
-    chart_df.set_index("Chunk")
-
-)
-
-# ==========================================================
-# Source Information
-# ==========================================================
-
-source = build_source_summary(result)
-
-st.divider()
-
-st.header("📚 Source Information")
-
-st.write(f"**Document:** {source['document']}")
-
-st.write(f"**Chunk:** {source['chunk_id']}")
-
-st.write(f"**Pages:** {source['pages']}")
-
-st.write(f"**Words:** {source['words']}")
-
-st.write(f"**Sentences:** {source['sentences']}")
-
-# ==========================================================
-# Pipeline Timeline
-# ==========================================================
-
-timeline = build_pipeline_timeline(result)
-
-st.divider()
-
-st.header("⏱ Pipeline Timeline")
-
-timeline_df = pd.DataFrame(timeline)
-
-st.dataframe(
-    timeline_df,
-    use_container_width=True,
-)
-
-# ==========================================================
-# Pipeline Flow
-# ==========================================================
-
-flow = build_pipeline_flow()
-
-st.divider()
-
-st.header("⚙️ How SmartDocAI Works")
-
-for step in flow:
-
-    st.write(step)
-
-# ==========================================================
-# Prompt Preview
-# ==========================================================
-
-preview = build_prompt_preview(result)
-
-st.divider()
-
-st.header("📝 Prompt Sent to Gemini")
-
-st.caption(
-    f"Prompt Length : {preview['length']} characters"
-)
-
-st.code(
-    preview["prompt"],
-    language="text",
-)
-
-if preview["truncated"]:
-
-    st.info(
-        "Only the beginning of the prompt is shown."
-    )
-
-# ==========================================================
-# LLM Information
-# ==========================================================
-
-llm = build_llm_summary(result)
-
-st.divider()
-
-st.header("🤖 Gemini Information")
-
-col1, col2, col3 = st.columns(3)
-
-col1.metric(
-    "Model",
-    llm["model"],
-)
-
-col2.metric(
-    "Latency",
-    f"{llm['latency']} sec",
-)
-
-col3.metric(
-    "Confidence",
-    llm["confidence"],
-)
-
-# ==========================================================
-# How SmartDocAI Answered
-# ==========================================================
-
-steps = build_how_it_works(result)
-
-st.divider()
-
-st.header("🎓 How SmartDocAI Produced This Answer")
-
-for step in steps:
-
-    st.write(step)
-
-st.divider()
-
-st.caption(
-    "SmartDocAI • Explainable Retrieval-Augmented Question Answering using Gemini"
-)
+                st.write(r.chunk.raw_text)
