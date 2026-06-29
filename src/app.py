@@ -112,6 +112,22 @@ if st.session_state.result:
 
     st.write(result.answer)
 
+    # BUG FIX 1: The original code had broken syntax — col2.metric() was opened,
+    # then Python logic ran inside it, then col2.metric() was called again and
+    # the outer one was never closed. Fixed by computing chunk_name BEFORE the
+    # st.columns / metric calls, then passing it in cleanly.
+    # BUG FIX 2: best.chunk.chunk_id → best.chunk_id
+    # (best_overall() returns the ScoredChunk directly, not a wrapper with .chunk)
+    # BUG FIX 3: col4 was declared but never used; removed the unused column.
+
+    comparison = result.retrieval_comparison
+    best = comparison.best_overall()
+
+    if best:
+        chunk_name = best.chunk_id.split("::")[-1]
+    else:
+        chunk_name = "Unknown"
+
     col1, col2, col3 = st.columns(3)
 
     col1.metric(
@@ -120,8 +136,8 @@ if st.session_state.result:
     )
 
     col2.metric(
-        "Source Chunk",
-        result.source_chunk,
+        "Chunk",
+        chunk_name,
     )
 
     col3.metric(
@@ -143,8 +159,6 @@ if st.session_state.result:
 
     st.header("Retrieved Chunks")
 
-    comparison = result.retrieval_comparison
-
     methods = [
         ("Embedding", comparison.embedding),
         ("TF-IDF", comparison.tfidf),
@@ -162,7 +176,7 @@ if st.session_state.result:
         for r in results:
 
             with st.expander(
-                f"{r.chunk.chunk_id} | Score = {r.similarity_score:.4f}"
+                f"{r.chunk_id} | Score = {r.similarity_score:.4f}"
             ):
 
                 st.write(f"Pages : {r.page_range()}")
